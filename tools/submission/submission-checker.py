@@ -687,7 +687,7 @@ class Config():
             model = "ssd-small"
         elif "mobilenet" in model:
             model = "mobilenet"
-        elif "efficientnet" in model:
+        elif "efficientnet" in model or "resnet50" in model:
             model = "resnet"
         elif "rcnn" in model:
             model = "ssd-small"
@@ -750,6 +750,10 @@ class Config():
 
     def has_query_count_in_log(self):
         return self.version not in ["v0.5", "v0.7", "v1.0", "v1.1"]
+
+
+    def has_power_utc_timestamps(self):
+        return self.version not in ["v0.5", "v0.7", "v1.0"]
 
 
 
@@ -1000,6 +1004,9 @@ def check_performance_dir(config, model, path, scenario_fixed):
 
     if (scenario_fixed in ["MultiStream"] and not config.uses_legacy_multistream()) and scenario in ["SingleStream"]:
         inferred = True
+        # samples_per_query does not match with the one reported in the logs 
+        # when inferring MultiStream from SingleStream
+        samples_per_query = 8
         if uses_early_stopping:
             early_stopping_latency_ms = mlperf_log["early_stopping_latency_ms"]
             if early_stopping_latency_ms == 0:
@@ -1035,17 +1042,36 @@ def check_power_dir(power_path, ranging_path, testing_path, scenario_fixed, conf
         is_valid = False
 
     # parse the power logs
-    server_json_fname = os.path.join(power_path, "server.json")
-    with open(server_json_fname) as f:
-        server_timezone = datetime.timedelta(seconds=json.load(f)["timezone"])
-    client_json_fname = os.path.join(power_path, "client.json")
-    with open(client_json_fname) as f:
-        client_timezone = datetime.timedelta(seconds=json.load(f)["timezone"])
+    if config.has_power_utc_timestamps():
+        server_timezone = datetime.timedelta(0)
+        client_timezone = datetime.timedelta(0)
+    else:
+        server_json_fname = os.path.join(power_path, "server.json")
+        with open(server_json_fname) as f:
+            server_timezone = datetime.timedelta(seconds=json.load(f)["timezone"])
+        client_json_fname = os.path.join(power_path, "client.json")
+        with open(client_json_fname) as f:
+            client_timezone = datetime.timedelta(seconds=json.load(f)["timezone"])
     detail_log_fname = os.path.join(testing_path, "mlperf_log_detail.txt")
     mlperf_log = MLPerfLog(detail_log_fname)
     datetime_format = '%m-%d-%Y %H:%M:%S.%f'
     power_begin = datetime.datetime.strptime(mlperf_log["power_begin"], datetime_format) + client_timezone
     power_end = datetime.datetime.strptime(mlperf_log["power_end"], datetime_format) + client_timezone
+    # Obtain the scenario also from logs to check if power is inferred
+    if config.has_new_logging_format():
+        scenario = mlperf_log["effective_scenario"]
+    else:
+        rt = {}
+        fname = os.path.join(testing_path, "mlperf_log_summary.txt")
+        with open(fname, "r") as f:
+            for line in f:
+                m = re.match(r"^Result\s+is\s*\:\s+VALID", line)
+                if m:
+                    is_valid = True
+                m = re.match(r"^\s*([\w\s.\(\)\/]+)\s*\:\s*([\w\+\.][\w\+\.\s]*)", line)
+                if m:
+                    rt[m.group(1).strip()] = m.group(2).strip()
+        scenario = rt["Scenario"].replace(" ","")
     spl_fname = os.path.join(testing_path, "spl.txt")
     power_list = []
     with open(spl_fname) as f:
@@ -1081,6 +1107,10 @@ def check_power_dir(power_path, ranging_path, testing_path, scenario_fixed, conf
                 # Starting from v2.0, LoadGen logs the actual number of issued queries.
                 num_queries = int(mlperf_log["result_query_count"])
             power_metric = avg_power * power_duration / num_queries
+
+            if (scenario_fixed in ["MultiStream"] and not config.uses_legacy_multistream()) and scenario in ["SingleStream"]:
+                samples_per_query = 8
+                power_metric = avg_power * power_duration * samples_per_query / num_queries
 
     if more_power_check:
         python_version_major = int(sys.version.split(" ")[0].split(".")[0])
@@ -1532,7 +1562,7 @@ def check_compliance_dir(compliance_dir, model, scenario):
     compliance_acc_pass = True
     test_list = ["TEST01", "TEST04-A", "TEST04-B", "TEST05"]
 
-    if model in ["rnnt", "bert-99", "bert-99.9", "dlrm-99", "dlrm-99.9"] or scenario in ["MultiStream"]:
+    if model in ["rnnt", "bert-99", "bert-99.9", "dlrm-99", "dlrm-99.9", "3d-unet-99", "3d-unet-99.9"]:
        test_list.remove("TEST04-A")
        test_list.remove("TEST04-B")
 
