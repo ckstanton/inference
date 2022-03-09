@@ -183,21 +183,23 @@ auto SampleDistribution<TestMode::PerformanceOnly>(size_t sample_count,
 }
 
 /// \brief SampleDistribution for 3D-UNet SingleStream, for v2.0
-// FIXME: meant for 3D UNet SingleStream only at the moment but the logic should work for others
-// TODO: consolidate the distribution generator after v2.0 
-auto SampleDistributionEqualIssue(size_t sample_count, size_t set_size, std::mt19937* rng) {
+// FIXME: meant for 3D UNet SingleStream only at the moment but the logic should
+// work for others
+// TODO: consolidate the distribution generator after v2.0
+auto SampleDistributionEqualIssue(size_t sample_count, size_t set_size,
+                                  std::mt19937* rng) {
   std::vector<size_t> indices;
   std::vector<size_t> shuffle_indices(set_size);
   std::iota(shuffle_indices.begin(), shuffle_indices.end(), 0);
   for (size_t j = 0; j < sample_count; j += set_size) {
     std::shuffle(shuffle_indices.begin(), shuffle_indices.end(), *rng);
-    indices.insert(indices.end(), shuffle_indices.begin(), shuffle_indices.end());
+    indices.insert(indices.end(), shuffle_indices.begin(),
+                   shuffle_indices.end());
   }
   return [indices = std::move(indices), i = size_t(0)](auto& /*gen*/) mutable {
-    return indices.at((i++)%indices.size());
+    return indices.at((i++) % indices.size());
   };
 }
-
 
 /// \brief Generates queries for the requested settings, templated by
 /// scenario and mode.
@@ -262,10 +264,8 @@ std::vector<QueryMetadata> GenerateQueries(
 
   // FIXME: Only used for v2.0 3D-UNet KiTS19 SingleStream
   // TODO: Need to consolidate the code for any generic usage after v2.0
-  auto sample_distribution_equal_issue =
-      SampleDistributionEqualIssue(min_queries,
-                                   loaded_samples.size(),
-                                   &sample_rng);
+  auto sample_distribution_equal_issue = SampleDistributionEqualIssue(
+      min_queries, loaded_samples.size(), &sample_rng);
 
   auto schedule_distribution =
       ScheduleDistribution<scenario>(settings.target_qps);
@@ -340,12 +340,11 @@ std::vector<QueryMetadata> GenerateQueries(
                          scenario == TestScenario::SingleStream;
       for (auto& s : samples) {
         s = loaded_samples[settings.performance_issue_unique
-                           ? sample_distribution_unique(sample_rng)
-                           : settings.performance_issue_same
-                            ? same_sample
-                            : equal_issue
-                              ? sample_distribution_equal_issue(sample_rng)
-                              : sample_distribution(sample_rng)];
+                               ? sample_distribution_unique(sample_rng)
+                           : settings.performance_issue_same ? same_sample
+                           : equal_issue
+                               ? sample_distribution_equal_issue(sample_rng)
+                               : sample_distribution(sample_rng)];
       }
     }
     queries.emplace_back(samples, timestamp, response_delegate, sequence_gen);
@@ -675,8 +674,8 @@ bool PerformanceSummary::EarlyStopping(std::string* recommendation) {
   ProcessLatencies();
   switch (settings.scenario) {
     case TestScenario::SingleStream: {
-      // TODO: Grab multistream percentile from settings, instead of hardcoding.
-      double multi_stream_percentile = 0.99;
+      double multi_stream_percentile =
+          settings.requested.multi_stream_target_latency_percentile;
       int64_t t = 1;
       int64_t h_min = find_min_passing(1, target_latency_percentile.percentile,
                                        tolerance, confidence);
